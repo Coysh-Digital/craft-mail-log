@@ -33,10 +33,10 @@ class LogsService extends Component
         $record->fromAddress = $from !== [] ? (array_keys($from)[0] ?? null) : null;
         $record->fromName = $from !== [] ? (array_values($from)[0] ?? null) : null;
 
-        $record->toAddresses = $this->addressesToArray($message->getTo());
-        $record->ccAddresses = $this->addressesToArray($message->getCc());
-        $record->bccAddresses = $this->addressesToArray($message->getBcc());
-        $record->replyToAddresses = $this->addressesToArray($message->getReplyTo());
+        $record->toAddresses = $this->extractAddresses($message, 'to');
+        $record->ccAddresses = $this->extractAddresses($message, 'cc');
+        $record->bccAddresses = $this->extractAddresses($message, 'bcc');
+        $record->replyToAddresses = $this->extractAddresses($message, 'replyTo');
 
         // Craft system-message key (password reset, verify account, etc.)
         if ($message instanceof CraftMessage && !empty($message->key)) {
@@ -218,5 +218,52 @@ class LogsService extends Component
         } catch (\Throwable $e) {
             return null;
         }
+    }
+
+    /**
+     * Read addresses from the underlying Symfony email where possible,
+     * falling back to the Yii wrapper. Yii's getTo()/getCc()/etc. can
+     * return data in formats my normaliser doesn't always catch, whereas
+     * Symfony's Email always returns Address[] with clean accessors.
+     *
+     * @param string $type 'to' | 'cc' | 'bcc' | 'replyTo'
+     */
+    protected function extractAddresses(MessageInterface $message, string $type): array
+    {
+        // Preferred: go straight to the Symfony email.
+        if (method_exists($message, 'getSymfonyEmail')) {
+            try {
+                $email = $message->getSymfonyEmail();
+                $method = match ($type) {
+                    'to' => 'getTo',
+                    'cc' => 'getCc',
+                    'bcc' => 'getBcc',
+                    'replyTo' => 'getReplyTo',
+                };
+                $addresses = $email->{$method}();
+                $out = [];
+                foreach ($addresses as $addr) {
+                    if (is_object($addr) && method_exists($addr, 'getAddress')) {
+                        $email = $addr->getAddress();
+                        $name = method_exists($addr, 'getName') ? $addr->getName() : null;
+                        $out[$email] = $name !== '' ? $name : null;
+                    } elseif (is_string($addr)) {
+                        $out[$addr] = null;
+                    }
+                }
+                return $out;
+            } catch (\Throwable $e) {
+                // Fall through to the Yii wrapper.
+            }
+        }
+
+        // Fallback: Yii wrapper.
+        $getter = match ($type) {
+            'to' => 'getTo',
+            'cc' => 'getCc',
+            'bcc' => 'getBcc',
+            'replyTo' => 'getReplyTo',
+        };
+        return $this->addressesToArray($message->{$getter}());
     }
 }
