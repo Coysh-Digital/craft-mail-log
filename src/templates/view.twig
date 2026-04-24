@@ -1,0 +1,145 @@
+{% extends "_layouts/cp" %}
+
+{% set title = log.subject ?: 'Mail log entry'|t('mail-log') %}
+
+{% set crumbs = [
+    { label: 'Mail Log'|t('mail-log'), url: cpUrl('mail-log') }
+] %}
+
+{% block toolbar %}
+    {% if canDelete %}
+        <form method="post"
+              accept-charset="UTF-8"
+              onsubmit="return confirm({{ 'Delete this log entry?'|t('mail-log')|json_encode }});">
+            {{ csrfInput() }}
+            {{ actionInput('mail-log/logs/delete') }}
+            {{ hiddenInput('id', log.id) }}
+            <button type="submit" class="btn">
+                {{ "Delete"|t('mail-log') }}
+            </button>
+        </form>
+    {% endif %}
+{% endblock %}
+
+{% block content %}
+    <div class="tableview">
+        <table class="data fullwidth">
+            <tbody>
+                <tr>
+                    <th scope="row">{{ "Date"|t('mail-log') }}</th>
+                    <td>{{ log.dateCreated|datetime('long') }}</td>
+                </tr>
+                <tr>
+                    <th scope="row">{{ "Status"|t('mail-log') }}</th>
+                    <td>
+                        {% if log.success %}
+                            <span class="status green"></span> {{ "Sent"|t('mail-log') }}
+                        {% else %}
+                            <span class="status red"></span> {{ "Failed"|t('mail-log') }}
+                        {% endif %}
+                    </td>
+                </tr>
+                {% if log.error %}
+                    <tr>
+                        <th scope="row">{{ "Error"|t('mail-log') }}</th>
+                        <td><code>{{ log.error }}</code></td>
+                    </tr>
+                {% endif %}
+                {% if log.systemKey %}
+                    <tr>
+                        <th scope="row">{{ "System key"|t('mail-log') }}</th>
+                        <td><code>{{ log.systemKey }}</code></td>
+                    </tr>
+                {% endif %}
+                <tr>
+                    <th scope="row">{{ "Subject"|t('mail-log') }}</th>
+                    <td>{{ log.subject ?: '—' }}</td>
+                </tr>
+                <tr>
+                    <th scope="row">{{ "From"|t('mail-log') }}</th>
+                    <td>
+                        {% if log.fromAddress %}
+                            {{ log.fromName ? log.fromName ~ ' <' ~ log.fromAddress ~ '>' : log.fromAddress }}
+                        {% else %}
+                            —
+                        {% endif %}
+                    </td>
+                </tr>
+                <tr>
+                    <th scope="row">{{ "To"|t('mail-log') }}</th>
+                    <td>
+                        {% set addrs = log.toAddresses ?: {} %}
+                        {% if addrs is empty %}
+                            —
+                        {% else %}
+                            {% for email, name in addrs %}{{ name ? name ~ ' <' ~ email ~ '>' : email }}{% if not loop.last %}, {% endif %}{% endfor %}
+                        {% endif %}
+                    </td>
+                </tr>
+                {% if log.ccAddresses %}
+                    <tr>
+                        <th scope="row">{{ "CC"|t('mail-log') }}</th>
+                        <td>
+                            {% for email, name in log.ccAddresses %}{{ name ? name ~ ' <' ~ email ~ '>' : email }}{% if not loop.last %}, {% endif %}{% endfor %}
+                        </td>
+                    </tr>
+                {% endif %}
+                {% if log.bccAddresses %}
+                    <tr>
+                        <th scope="row">{{ "BCC"|t('mail-log') }}</th>
+                        <td>
+                            {% for email, name in log.bccAddresses %}{{ name ? name ~ ' <' ~ email ~ '>' : email }}{% if not loop.last %}, {% endif %}{% endfor %}
+                        </td>
+                    </tr>
+                {% endif %}
+                {% if log.replyToAddresses %}
+                    <tr>
+                        <th scope="row">{{ "Reply-to"|t('mail-log') }}</th>
+                        <td>
+                            {% for email, name in log.replyToAddresses %}{{ name ? name ~ ' <' ~ email ~ '>' : email }}{% if not loop.last %}, {% endif %}{% endfor %}
+                        </td>
+                    </tr>
+                {% endif %}
+                {% if log.attachmentNames %}
+                    <tr>
+                        <th scope="row">{{ "Attachments"|t('mail-log') }}</th>
+                        <td>{{ log.attachmentNames|join(', ') }}</td>
+                    </tr>
+                {% endif %}
+                {% if log.transportClass %}
+                    <tr>
+                        <th scope="row">{{ "Transport"|t('mail-log') }}</th>
+                        <td><code>{{ log.transportClass }}</code></td>
+                    </tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+
+    {% if log.htmlBody %}
+        <h2>{{ "HTML body"|t('mail-log') }}</h2>
+        <div class="pane">
+            <iframe srcdoc="{{ log.htmlBody|e('html_attr') }}"
+                    sandbox=""
+                    class="mail-log-iframe"></iframe>
+        </div>
+        <details>
+            <summary>{{ "HTML source"|t('mail-log') }}</summary>
+            <div class="readable">
+                <pre>{{ log.htmlBody }}</pre>
+            </div>
+        </details>
+    {% endif %}
+
+    {% if log.textBody %}
+        <h2>{{ "Text body"|t('mail-log') }}</h2>
+        <div class="readable">
+            <pre>{{ log.textBody }}</pre>
+        </div>
+    {% endif %}
+
+    {% css %}
+        .mail-log-iframe { width: 100%; min-height: 500px; border: 0; background: #fff; display: block; }
+        details summary { cursor: pointer; }
+    {% endcss %}
+{% endblock %}

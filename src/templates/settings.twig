@@ -1,0 +1,40 @@
+{% import '_includes/forms.twig' as forms %}
+
+{{ forms.lightswitchField({
+    label: "Log email bodies"|t('mail-log'),
+    instructions: "Store the text and HTML body of each email. Disable on high-volume sites to save disk space."|t('mail-log'),
+    id: 'logBodies',
+    name: 'logBodies',
+    on: settings.logBodies,
+    errors: settings.getErrors('logBodies')
+}) }}
+
+{{ forms.lightswitchField({
+    label: "Log failed sends"|t('mail-log'),
+    instructions: "Create a log entry when Craft's mailer reports a send failure."|t('mail-log'),
+    id: 'logFailures',
+    name: 'logFailures',
+    on: settings.logFailures,
+    errors: settings.getErrors('logFailures')
+}) }}
+
+{{ forms.textField({
+    label: "Retention (days)"|t('mail-log'),
+    instructions: "Entries older than this will be deleted by the `php craft mail-log/logs/prune` console command. 0 keeps entries forever."|t('mail-log'),
+    id: 'retentionDays',
+    name: 'retentionDays',
+    value: settings.retentionDays,
+    type: 'number',
+    size: 5,
+    min: 0,
+    errors: settings.getErrors('retentionDays')
+}) }}
+
+{{ forms.textField({
+    label: "CP nav label"|t('mail-log'),
+    instructions: "Override the default label shown in the control panel sidebar."|t('mail-log'),
+    id: 'cpNavLabel',
+    name: 'cpNavLabel',
+    value: settings.cpNavLabel,
+    errors: settings.getErrors('cpNavLabel')
+}) }}

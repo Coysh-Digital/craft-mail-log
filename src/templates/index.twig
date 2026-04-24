@@ -1,0 +1,104 @@
+{% extends "_layouts/cp" %}
+
+{% set title = "Mail Log"|t('mail-log') %}
+{% set crumbs = [] %}
+
+{% block toolbar %}
+    {% if canDelete and logs|length %}
+        <form method="post"
+              accept-charset="UTF-8"
+              onsubmit="return confirm({{ 'Delete ALL mail log entries? This cannot be undone.'|t('mail-log')|json_encode }});">
+            {{ csrfInput() }}
+            {{ actionInput('mail-log/logs/flush') }}
+            <button type="submit" class="btn">
+                {{ "Delete all"|t('mail-log') }}
+            </button>
+        </form>
+    {% endif %}
+{% endblock %}
+
+{% block content %}
+    {% if logs|length == 0 %}
+        <p>{{ "No emails have been logged yet."|t('mail-log') }}</p>
+    {% else %}
+        <div class="tableview">
+            <table class="data fullwidth">
+                <thead>
+                    <tr>
+                        <th scope="col">{{ "Date"|t('mail-log') }}</th>
+                        <th scope="col">{{ "Subject"|t('mail-log') }}</th>
+                        <th scope="col">{{ "To"|t('mail-log') }}</th>
+                        <th scope="col">{{ "From"|t('mail-log') }}</th>
+                        <th scope="col">{{ "Status"|t('mail-log') }}</th>
+                        {% if canDelete %}<th scope="col"></th>{% endif %}
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for log in logs %}
+                        <tr>
+                            <td>
+                                <a href="{{ cpUrl('mail-log/view/' ~ log.id) }}">
+                                    {{ log.dateCreated|datetime('short') }}
+                                </a>
+                            </td>
+                            <td>
+                                <a href="{{ cpUrl('mail-log/view/' ~ log.id) }}">
+                                    {{ log.subject ?: '(no subject)'|t('mail-log') }}
+                                </a>
+                            </td>
+                            <td>
+                                {%- set toArr = log.toAddresses ?: {} -%}
+                                {{- toArr|keys|join(', ') -}}
+                            </td>
+                            <td>{{ log.fromAddress ?: '' }}</td>
+                            <td>
+                                {% if log.success %}
+                                    <span class="status green"></span>
+                                    {{ "Sent"|t('mail-log') }}
+                                {% else %}
+                                    <span class="status red"></span>
+                                    {{ "Failed"|t('mail-log') }}
+                                {% endif %}
+                            </td>
+                            {% if canDelete %}
+                                <td class="actions-cell">
+                                    <form method="post"
+                                          accept-charset="UTF-8"
+                                          onsubmit="return confirm({{ 'Delete this log entry?'|t('mail-log')|json_encode }});">
+                                        {{ csrfInput() }}
+                                        {{ actionInput('mail-log/logs/delete') }}
+                                        {{ hiddenInput('id', log.id) }}
+                                        <button type="submit" class="btn small">
+                                            {{ "Delete"|t('mail-log') }}
+                                        </button>
+                                    </form>
+                                </td>
+                            {% endif %}
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        {# Pagination — Yii Pagination is 0-indexed internally, 1-indexed in URLs #}
+        {% if pagination.pageCount > 1 %}
+            <nav class="flex flex-nowrap" aria-label="{{ 'Pagination'|t('mail-log') }}">
+                <div class="flex-grow">
+                    {{ "Page {current} of {total}"|t('mail-log', { current: pagination.page + 1, total: pagination.pageCount }) }}
+                </div>
+                <div class="flex flex-nowrap">
+                    {% if pagination.page > 0 %}
+                        <a class="btn" href="{{ cpUrl('mail-log', { page: pagination.page }) }}">
+                            ← {{ "Previous"|t('mail-log') }}
+                        </a>
+                    {% endif %}
+                    {% if pagination.page + 1 < pagination.pageCount %}
+                        <a class="btn" href="{{ cpUrl('mail-log', { page: pagination.page + 2 }) }}">
+                            {{ "Next"|t('mail-log') }} →
+                        </a>
+                    {% endif %}
+                </div>
+            </nav>
+        {% endif %}
+    {% endif %}
+{% endblock %}

@@ -1,0 +1,38 @@
+{
+    "name": "coyshdigital/craft-mail-log",
+    "description": "Log every email sent via Craft's mailer, regardless of the transport adapter in use.",
+    "type": "craft-plugin",
+    "license": "MIT",
+    "keywords": [
+        "craft",
+        "cms",
+        "craftcms",
+        "email",
+        "mail",
+        "log",
+        "audit",
+        "craft-plugin"
+    ],
+    "authors": [
+        {
+            "name": "Coysh Digital",
+            "homepage": "https://coyshdigital.co.uk"
+        }
+    ],
+    "require": {
+        "php": ">=8.2",
+        "craftcms/cms": "^5.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "CoyshDigital\\MailLog\\": "src/"
+        }
+    },
+    "extra": {
+        "name": "Mail Log",
+        "handle": "mail-log",
+        "developer": "Coysh Digital",
+        "developerUrl": "https://coyshdigital.co.uk",
+        "class": "CoyshDigital\\MailLog\\MailLog"
+    }
+}
