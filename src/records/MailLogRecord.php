@@ -48,34 +48,27 @@ class MailLogRecord extends ActiveRecord
 
     /**
      * @inheritdoc
+     *
+     * Decode JSON columns on read. We can't materialise the decoded array back
+     * onto the attribute (Craft's ActiveRecord::setAttribute() re-serialises
+     * arrays for the DB via Db::prepareValueForDb(), so any decode is
+     * immediately undone). Instead, intercept reads and decode on the fly.
      */
-    public function beforeSave($insert): bool
+    public function __get($name)
     {
-        foreach (self::JSON_COLUMNS as $column) {
-            $value = $this->getAttribute($column);
-            if (is_array($value)) {
-                $this->setAttribute($column, $value === [] ? null : json_encode($value));
-            }
-        }
-        return parent::beforeSave($insert);
-    }
-
-    /**
-     * @inheritdoc
-     */
-    public function afterFind(): void
-    {
-        foreach (self::JSON_COLUMNS as $column) {
-            $value = $this->getAttribute($column);
+        if (in_array($name, self::JSON_COLUMNS, true)) {
+            $value = $this->getAttribute($name);
             if (is_string($value) && $value !== '') {
                 $decoded = json_decode($value, true);
                 if (is_array($decoded)) {
-                    $this->setAttribute($column, $decoded);
+                    return $decoded;
                 }
-            } elseif ($value === null) {
-                $this->setAttribute($column, null);
             }
+            if (is_array($value)) {
+                return $value;
+            }
+            return null;
         }
-        parent::afterFind();
+        return parent::__get($name);
     }
 }
