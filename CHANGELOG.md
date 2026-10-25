@@ -1,6 +1,6 @@
 # Mail Log Changelog
 
-## Unreleased
+## 1.1.0 - 2026-10-25
 
 ### Added
 
@@ -20,6 +20,7 @@
 - HTML or text bodies set as streams weren't stored.
 - Deleting an entry from its detail page redirected back to the deleted entry. It now returns to the list, and deleting from the list keeps the current page and filters.
 - Very long subjects no longer stretch the page layout.
+- Recipient, CC/BCC, reply-to and attachment lists weren't decoded correctly when displayed in the CP.
 
 ### Changed
 
@@ -27,6 +28,12 @@
 - Pruning deletes in batches of 1,000 to avoid long table locks.
 - Empty CC/BCC/Reply-to lists and attachment lists are stored as `NULL` rather than `[]`.
 - Accessibility: labelled search controls, descriptive delete buttons and a title on the preview iframe.
+
+## 1.0.1 - 2026-04-24
+
+### Fixed
+
+- The To field could be empty; recipients are now read from the underlying Symfony email.
 
 ## 1.0.0 - 2026-04-24
 
