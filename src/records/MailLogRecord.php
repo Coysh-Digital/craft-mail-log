@@ -8,20 +8,20 @@ use craft\db\ActiveRecord;
  * @property int $id
  * @property bool $success
  * @property string|null $systemKey
- * @property string $subject
+ * @property string|null $subject
  * @property string|null $fromAddress
  * @property string|null $fromName
- * @property array $toAddresses
- * @property array|null $ccAddresses
- * @property array|null $bccAddresses
- * @property array|null $replyToAddresses
+ * @property array<string, string|null>|null $toAddresses
+ * @property array<string, string|null>|null $ccAddresses
+ * @property array<string, string|null>|null $bccAddresses
+ * @property array<string, string|null>|null $replyToAddresses
  * @property string|null $textBody
  * @property string|null $htmlBody
- * @property array|null $attachmentNames
+ * @property string[]|null $attachmentNames
  * @property string|null $error
  * @property string|null $transportClass
- * @property \DateTime $dateCreated
- * @property \DateTime $dateUpdated
+ * @property string $dateCreated UTC, as stored in the database
+ * @property string $dateUpdated UTC, as stored in the database
  * @property string $uid
  */
 class MailLogRecord extends ActiveRecord

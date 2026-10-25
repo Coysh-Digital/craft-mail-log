@@ -1,0 +1,13 @@
+parameters:
+    level: 5
+    paths:
+        - src
+        - tests
+    bootstrapFiles:
+        - vendor/yiisoft/yii2/Yii.php
+        - vendor/craftcms/cms/src/Craft.php
+    scanFiles:
+        - vendor/craftcms/cms/src/behaviors/SessionBehavior.php
+    stubFiles:
+        # Types Craft::$app as a Craft application
+        - vendor/craftcms/cms/stubs/yii/BaseYii.stub

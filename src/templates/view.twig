@@ -1,6 +1,11 @@
 {% extends "_layouts/cp" %}
 
-{% set title = log.subject ?: 'Mail log entry'|t('mail-log') %}
+{% macro addressList(addresses) -%}
+    {%- for email, name in addresses %}{{ name ? name ~ ' <' ~ email ~ '>' : email }}{% if not loop.last %}, {% endif %}{% endfor -%}
+{%- endmacro %}
+
+{# Truncated so a long subject can't stretch the page header; the full subject is shown below #}
+{% set title = log.subject ? (log.subject|length > 60 ? log.subject|slice(0, 59) ~ '…' : log.subject) : 'Mail log entry'|t('mail-log') %}
 
 {% set crumbs = [
     { label: 'Mail Log'|t('mail-log'), url: cpUrl('mail-log') }
@@ -13,6 +18,7 @@
               onsubmit="return confirm({{ 'Delete this log entry?'|t('mail-log')|json_encode }});">
             {{ csrfInput() }}
             {{ actionInput('mail-log/logs/delete') }}
+            {{ redirectInput('mail-log') }}
             {{ hiddenInput('id', log.id) }}
             <button type="submit" class="btn">
                 {{ "Delete"|t('mail-log') }}
@@ -33,9 +39,9 @@
                     <th scope="row">{{ "Status"|t('mail-log') }}</th>
                     <td>
                         {% if log.success %}
-                            <span class="status green"></span> {{ "Sent"|t('mail-log') }}
+                            <span class="status green" aria-hidden="true"></span> {{ "Sent"|t('mail-log') }}
                         {% else %}
-                            <span class="status red"></span> {{ "Failed"|t('mail-log') }}
+                            <span class="status red" aria-hidden="true"></span> {{ "Failed"|t('mail-log') }}
                         {% endif %}
                     </td>
                 </tr>
@@ -53,13 +59,13 @@
                 {% endif %}
                 <tr>
                     <th scope="row">{{ "Subject"|t('mail-log') }}</th>
-                    <td>{{ log.subject ?: '—' }}</td>
+                    <td class="mail-log-wrap">{{ log.subject ?: '—' }}</td>
                 </tr>
                 <tr>
                     <th scope="row">{{ "From"|t('mail-log') }}</th>
                     <td>
                         {% if log.fromAddress %}
-                            {{ log.fromName ? log.fromName ~ ' <' ~ log.fromAddress ~ '>' : log.fromAddress }}
+                            {{ _self.addressList({(log.fromAddress): log.fromName}) }}
                         {% else %}
                             —
                         {% endif %}
@@ -67,39 +73,20 @@
                 </tr>
                 <tr>
                     <th scope="row">{{ "To"|t('mail-log') }}</th>
-                    <td>
-                        {% set addrs = log.toAddresses ?: {} %}
-                        {% if addrs is empty %}
-                            —
-                        {% else %}
-                            {% for email, name in addrs %}{{ name ? name ~ ' <' ~ email ~ '>' : email }}{% if not loop.last %}, {% endif %}{% endfor %}
-                        {% endif %}
-                    </td>
+                    <td>{{ log.toAddresses ? _self.addressList(log.toAddresses) : '—' }}</td>
                 </tr>
-                {% if log.ccAddresses %}
-                    <tr>
-                        <th scope="row">{{ "CC"|t('mail-log') }}</th>
-                        <td>
-                            {% for email, name in log.ccAddresses %}{{ name ? name ~ ' <' ~ email ~ '>' : email }}{% if not loop.last %}, {% endif %}{% endfor %}
-                        </td>
-                    </tr>
-                {% endif %}
-                {% if log.bccAddresses %}
-                    <tr>
-                        <th scope="row">{{ "BCC"|t('mail-log') }}</th>
-                        <td>
-                            {% for email, name in log.bccAddresses %}{{ name ? name ~ ' <' ~ email ~ '>' : email }}{% if not loop.last %}, {% endif %}{% endfor %}
-                        </td>
-                    </tr>
-                {% endif %}
-                {% if log.replyToAddresses %}
-                    <tr>
-                        <th scope="row">{{ "Reply-to"|t('mail-log') }}</th>
-                        <td>
-                            {% for email, name in log.replyToAddresses %}{{ name ? name ~ ' <' ~ email ~ '>' : email }}{% if not loop.last %}, {% endif %}{% endfor %}
-                        </td>
-                    </tr>
-                {% endif %}
+                {% for label, addresses in {
+                    ('CC'|t('mail-log')): log.ccAddresses,
+                    ('BCC'|t('mail-log')): log.bccAddresses,
+                    ('Reply-to'|t('mail-log')): log.replyToAddresses,
+                } %}
+                    {% if addresses %}
+                        <tr>
+                            <th scope="row">{{ label }}</th>
+                            <td>{{ _self.addressList(addresses) }}</td>
+                        </tr>
+                    {% endif %}
+                {% endfor %}
                 {% if log.attachmentNames %}
                     <tr>
                         <th scope="row">{{ "Attachments"|t('mail-log') }}</th>
@@ -116,30 +103,50 @@
         </table>
     </div>
 
-    {% if log.htmlBody %}
-        <h2>{{ "HTML body"|t('mail-log') }}</h2>
-        <div class="pane">
-            <iframe srcdoc="{{ log.htmlBody|e('html_attr') }}"
-                    sandbox=""
-                    class="mail-log-iframe"></iframe>
-        </div>
-        <details>
-            <summary>{{ "HTML source"|t('mail-log') }}</summary>
-            <div class="readable">
-                <pre>{{ log.htmlBody }}</pre>
+    {% if redacted %}
+        <p class="notice has-icon">
+            <span class="icon" aria-hidden="true"></span>
+            <span class="notice-content">
+                {{ "The body of this email is hidden because it contains a single-use link (such as a password reset or account activation link). This can be changed in the Mail Log plugin settings."|t('mail-log') }}
+            </span>
+        </p>
+    {% else %}
+        {% if previewHtml %}
+            <h2>{{ "HTML body"|t('mail-log') }}</h2>
+            {% if not loadRemote %}
+                <p class="light">
+                    {{ "Remote images and other external content are blocked."|t('mail-log') }}
+                    <a href="{{ cpUrl('mail-log/view/' ~ log.id, {remote: 1}) }}">{{ "Load remote content"|t('mail-log') }}</a>
+                </p>
+            {% endif %}
+            <div class="pane">
+                <iframe srcdoc="{{ previewHtml|e('html_attr') }}"
+                        sandbox=""
+                        title="{{ 'HTML body preview'|t('mail-log') }}"
+                        class="mail-log-iframe"></iframe>
             </div>
-        </details>
-    {% endif %}
+            <details>
+                <summary>{{ "HTML source"|t('mail-log') }}</summary>
+                <div class="readable">
+                    <pre>{{ log.htmlBody }}</pre>
+                </div>
+            </details>
+        {% endif %}
 
-    {% if log.textBody %}
-        <h2>{{ "Text body"|t('mail-log') }}</h2>
-        <div class="readable">
-            <pre>{{ log.textBody }}</pre>
-        </div>
+        {% if log.textBody %}
+            <h2>{{ "Text body"|t('mail-log') }}</h2>
+            <div class="readable">
+                <pre>{{ log.textBody }}</pre>
+            </div>
+        {% endif %}
     {% endif %}
 
     {% css %}
         .mail-log-iframe { width: 100%; min-height: 500px; border: 0; background: #fff; display: block; }
         details summary { cursor: pointer; }
+        .readable pre { white-space: pre-wrap; word-break: break-word; }
+        .mail-log-wrap { overflow-wrap: anywhere; }
+        #page-title { min-width: 0; }
+        #page-heading { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     {% endcss %}
 {% endblock %}

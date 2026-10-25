@@ -18,9 +18,18 @@
     errors: settings.getErrors('logFailures')
 }) }}
 
+{{ forms.lightswitchField({
+    label: "Redact sensitive emails"|t('mail-log'),
+    instructions: "Don’t store or display the bodies of system emails containing single-use links (password reset, account activation and email verification), so that people with access to the log can’t use them to sign in as the recipient."|t('mail-log'),
+    id: 'redactSensitiveEmails',
+    name: 'redactSensitiveEmails',
+    on: settings.redactSensitiveEmails,
+    errors: settings.getErrors('redactSensitiveEmails')
+}) }}
+
 {{ forms.textField({
     label: "Retention (days)"|t('mail-log'),
-    instructions: "Entries older than this will be deleted by the `php craft mail-log/logs/prune` console command. 0 keeps entries forever."|t('mail-log'),
+    instructions: "Entries older than this are deleted during Craft’s garbage collection and by the `php craft mail-log/logs/prune` console command. 0 keeps entries forever."|t('mail-log'),
     id: 'retentionDays',
     name: 'retentionDays',
     value: settings.retentionDays,
