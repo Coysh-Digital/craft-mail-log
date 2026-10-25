@@ -1,9 +1,45 @@
 {% extends "_layouts/cp" %}
+{% import '_includes/forms.twig' as forms %}
 
 {% set title = "Mail Log"|t('mail-log') %}
 {% set crumbs = [] %}
 
+{# Current filters, carried through pagination links #}
+{% set filterParams = {search: search, status: status}|filter(v => v is not empty) %}
+{% set isFiltered = filterParams is not empty %}
+
 {% block toolbar %}
+    <form method="get" action="{{ indexUrl }}" class="flex flex-nowrap" role="search">
+        {% for name, value in indexUrlParams %}
+            {{ hiddenInput(name, value) }}
+        {% endfor %}
+        {{ forms.text({
+            type: 'search',
+            name: 'search',
+            value: search,
+            placeholder: 'Search subject, sender or recipient'|t('mail-log'),
+            inputAttributes: {
+                aria: {label: 'Search'|t('mail-log')},
+            },
+        }) }}
+        {{ forms.select({
+            name: 'status',
+            value: status,
+            options: [
+                {label: 'All statuses'|t('mail-log'), value: ''},
+                {label: 'Sent'|t('mail-log'), value: 'sent'},
+                {label: 'Failed'|t('mail-log'), value: 'failed'},
+            ],
+            inputAttributes: {
+                aria: {label: 'Status'|t('mail-log')},
+            },
+        }) }}
+        <button type="submit" class="btn">{{ "Search"|t('mail-log') }}</button>
+        {% if isFiltered %}
+            <a class="btn" href="{{ cpUrl('mail-log') }}">{{ "Clear"|t('mail-log') }}</a>
+        {% endif %}
+    </form>
+
     {% if canDelete and logs|length %}
         <form method="post"
               accept-charset="UTF-8"
@@ -19,7 +55,13 @@
 
 {% block content %}
     {% if logs|length == 0 %}
-        <p>{{ "No emails have been logged yet."|t('mail-log') }}</p>
+        <p>
+            {% if isFiltered %}
+                {{ "No log entries match your search."|t('mail-log') }}
+            {% else %}
+                {{ "No emails have been logged yet."|t('mail-log') }}
+            {% endif %}
+        </p>
     {% else %}
         <div class="tableview">
             <table class="data fullwidth">
@@ -30,11 +72,14 @@
                         <th scope="col">{{ "To"|t('mail-log') }}</th>
                         <th scope="col">{{ "From"|t('mail-log') }}</th>
                         <th scope="col">{{ "Status"|t('mail-log') }}</th>
-                        {% if canDelete %}<th scope="col"></th>{% endif %}
+                        {% if canDelete %}
+                            <th scope="col"><span class="visually-hidden">{{ "Actions"|t('mail-log') }}</span></th>
+                        {% endif %}
                     </tr>
                 </thead>
                 <tbody>
                     {% for log in logs %}
+                        {% set subject = log.subject ?: '(no subject)'|t('mail-log') %}
                         <tr>
                             <td>
                                 <a href="{{ cpUrl('mail-log/view/' ~ log.id) }}">
@@ -42,21 +87,20 @@
                                 </a>
                             </td>
                             <td>
-                                <a href="{{ cpUrl('mail-log/view/' ~ log.id) }}">
-                                    {{ log.subject ?: '(no subject)'|t('mail-log') }}
+                                <a href="{{ cpUrl('mail-log/view/' ~ log.id) }}" title="{{ subject }}">
+                                    {{ subject|length > 120 ? subject|slice(0, 119) ~ '…' : subject }}
                                 </a>
                             </td>
                             <td>
-                                {%- set toArr = log.toAddresses ?: {} -%}
-                                {{- toArr|keys|join(', ') -}}
+                                {{- (log.toAddresses ?: {})|keys|join(', ') -}}
                             </td>
                             <td>{{ log.fromAddress ?: '' }}</td>
                             <td>
                                 {% if log.success %}
-                                    <span class="status green"></span>
+                                    <span class="status green" aria-hidden="true"></span>
                                     {{ "Sent"|t('mail-log') }}
                                 {% else %}
-                                    <span class="status red"></span>
+                                    <span class="status red" aria-hidden="true"></span>
                                     {{ "Failed"|t('mail-log') }}
                                 {% endif %}
                             </td>
@@ -67,8 +111,11 @@
                                           onsubmit="return confirm({{ 'Delete this log entry?'|t('mail-log')|json_encode }});">
                                         {{ csrfInput() }}
                                         {{ actionInput('mail-log/logs/delete') }}
+                                        {{ redirectInput(craft.app.request.absoluteUrl) }}
                                         {{ hiddenInput('id', log.id) }}
-                                        <button type="submit" class="btn small">
+                                        <button type="submit"
+                                                class="btn small"
+                                                aria-label="{{ 'Delete “{subject}”'|t('mail-log', {subject: subject}) }}">
                                             {{ "Delete"|t('mail-log') }}
                                         </button>
                                     </form>
@@ -88,12 +135,12 @@
                 </div>
                 <div class="flex flex-nowrap">
                     {% if pagination.page > 0 %}
-                        <a class="btn" href="{{ cpUrl('mail-log', { page: pagination.page }) }}">
+                        <a class="btn" href="{{ cpUrl('mail-log', filterParams|merge({ page: pagination.page })) }}">
                             ← {{ "Previous"|t('mail-log') }}
                         </a>
                     {% endif %}
                     {% if pagination.page + 1 < pagination.pageCount %}
-                        <a class="btn" href="{{ cpUrl('mail-log', { page: pagination.page + 2 }) }}">
+                        <a class="btn" href="{{ cpUrl('mail-log', filterParams|merge({ page: pagination.page + 2 })) }}">
                             {{ "Next"|t('mail-log') }} →
                         </a>
                     {% endif %}

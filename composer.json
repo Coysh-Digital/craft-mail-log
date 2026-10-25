@@ -23,9 +23,18 @@
         "php": ">=8.2",
         "craftcms/cms": "^5.0"
     },
+    "require-dev": {
+        "phpstan/phpstan": "^2.1",
+        "phpunit/phpunit": "^11.0"
+    },
     "autoload": {
         "psr-4": {
             "CoyshDigital\\MailLog\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "CoyshDigital\\MailLog\\tests\\": "tests/"
         }
     },
     "extra": {
@@ -34,5 +43,15 @@
         "developer": "Coysh Digital",
         "developerUrl": "https://coyshdigital.co.uk",
         "class": "CoyshDigital\\MailLog\\MailLog"
+    },
+    "scripts": {
+        "phpstan": "phpstan --memory-limit=1G",
+        "test": "phpunit"
+    },
+    "config": {
+        "allow-plugins": {
+            "craftcms/plugin-installer": true,
+            "yiisoft/yii2-composer": true
+        }
     }
 }

@@ -9,6 +9,7 @@ use craft\base\Plugin;
 use craft\events\RegisterUrlRulesEvent;
 use craft\events\RegisterUserPermissionsEvent;
 use craft\mail\Mailer;
+use craft\services\Gc;
 use craft\services\UserPermissions;
 use craft\web\UrlManager;
 use yii\base\Event;
@@ -21,12 +22,18 @@ use yii\mail\MailEvent;
  * containing envelope data, bodies (optional), attachment filenames and
  * error details for failures.
  *
- * The listener attaches to craft\mail\Mailer::EVENT_AFTER_SEND. Because
- * this event is defined on yii\mail\BaseMailer and fired inside its send()
- * method, it is independent of whichever transport adapter the site has
- * configured (Sendmail, SMTP, Gmail, SES, etc.).
+ * Successful sends are captured from craft\mail\Mailer::EVENT_AFTER_SEND.
+ * Because this event is defined on yii\mail\BaseMailer and fired inside its
+ * send() method, it is independent of whichever transport adapter the site
+ * has configured (Sendmail, SMTP, Gmail, SES, etc.).
+ *
+ * Failed sends never reach EVENT_AFTER_SEND (the transport throws, and
+ * Craft's mailer catches the exception and returns false), so they are
+ * captured by wrapping the mailer's transport during EVENT_BEFORE_SEND.
+ * See FailureReportingTransport.
  *
  * @property-read LogsService $logs
+ * @method Settings getSettings()
  */
 class MailLog extends Plugin
 {
@@ -62,7 +69,8 @@ class MailLog extends Plugin
             'logs' => LogsService::class,
         ]);
 
-        $this->registerMailerListener();
+        $this->registerMailerListeners();
+        $this->registerGarbageCollection();
         $this->registerPermissions();
 
         if (Craft::$app->request->getIsCpRequest()) {
@@ -103,26 +111,46 @@ class MailLog extends Plugin
     }
 
     /**
-     * Hook the after-send event on Craft's mailer. This fires for every
-     * call to Mailer::send(), regardless of transport adapter, and covers
-     * both successful and unsuccessful sends (where the mailer has caught
-     * and reported failure rather than thrown a fatal exception).
+     * Hook the send events on Craft's mailer. The service never lets an
+     * exception escape from these handlers, so logging can't break sending.
      */
-    protected function registerMailerListener(): void
+    protected function registerMailerListeners(): void
     {
+        Event::on(
+            Mailer::class,
+            Mailer::EVENT_BEFORE_SEND,
+            function (MailEvent $event): void {
+                /** @var Mailer $mailer */
+                $mailer = $event->sender;
+                $this->logs->handleBeforeSend($mailer, $event->message);
+            }
+        );
+
         Event::on(
             Mailer::class,
             Mailer::EVENT_AFTER_SEND,
             function (MailEvent $event): void {
+                /** @var Mailer $mailer */
+                $mailer = $event->sender;
+                $this->logs->handleAfterSend($mailer, $event->message, $event->isSuccessful);
+            }
+        );
+    }
+
+    /**
+     * Apply the retention setting whenever Craft runs garbage collection,
+     * so old entries are removed even without a cron job.
+     */
+    protected function registerGarbageCollection(): void
+    {
+        Event::on(
+            Gc::class,
+            Gc::EVENT_RUN,
+            function (): void {
                 try {
-                    self::$plugin->logs->log($event->message, $event->isSuccessful);
+                    $this->logs->pruneExpired();
                 } catch (\Throwable $e) {
-                    // Never let logging break the mailer. Write the error
-                    // into Craft's log and move on.
-                    Craft::error(
-                        'Mail Log failed to persist an entry: ' . $e->getMessage(),
-                        'mail-log'
-                    );
+                    Craft::error('Mail Log failed to prune old entries: ' . $e->getMessage(), 'mail-log');
                 }
             }
         );
