@@ -2,11 +2,20 @@
 
 {{ forms.lightswitchField({
     label: "Log email bodies"|t('mail-log'),
-    instructions: "Store the text and HTML body of each email. Disable on high-volume sites to save disk space."|t('mail-log'),
+    instructions: "Store the text and HTML body of each email. Bodies are the bulk of the log’s disk usage (around 50 KB per email uncompressed). Disable on high-volume sites."|t('mail-log'),
     id: 'logBodies',
     name: 'logBodies',
     on: settings.logBodies,
     errors: settings.getErrors('logBodies')
+}) }}
+
+{{ forms.lightswitchField({
+    label: "Compress email bodies"|t('mail-log'),
+    instructions: "Compress stored bodies, typically to a quarter of their size or less. They are decompressed automatically when viewed. Bodies stored uncompressed stay readable, so this can be changed at any time. Turn off if you need to read bodies directly in the database."|t('mail-log'),
+    id: 'compressBodies',
+    name: 'compressBodies',
+    on: settings.compressBodies,
+    errors: settings.getErrors('compressBodies')
 }) }}
 
 {{ forms.lightswitchField({
@@ -29,7 +38,8 @@
 
 {{ forms.textField({
     label: "Retention (days)"|t('mail-log'),
-    instructions: "Entries older than this are deleted during Craft’s garbage collection and by the `php craft mail-log/logs/prune` console command. 0 keeps entries forever."|t('mail-log'),
+    instructions: "Entries older than this are deleted during Craft’s garbage collection and by the `php craft mail-log/logs/prune` console command. 0 keeps entries forever. 30 days or less is recommended."|t('mail-log'),
+    warning: settings.hasUnboundedBodyStorage() ? "Entries are kept forever while email bodies are stored, so the log will keep growing. Set a retention period, or turn off body logging."|t('mail-log') : null,
     id: 'retentionDays',
     name: 'retentionDays',
     value: settings.retentionDays,

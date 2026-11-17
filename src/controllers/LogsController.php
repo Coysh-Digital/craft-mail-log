@@ -63,6 +63,8 @@ class LogsController extends Controller
             'indexUrl' => strtok($indexUrl, '?'),
             'indexUrlParams' => $indexUrlParams,
             'canDelete' => Craft::$app->getUser()->checkPermission('mailLog:delete'),
+            'unboundedBodyStorage' => (bool) Craft::$app->getUser()->getIsAdmin()
+                && MailLog::$plugin->getSettings()->hasUnboundedBodyStorage(),
         ]);
     }
 

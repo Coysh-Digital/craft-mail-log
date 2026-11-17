@@ -2,14 +2,18 @@
 
 namespace CoyshDigital\MailLog\services;
 
+use CoyshDigital\MailLog\helpers\BodyCodec;
 use CoyshDigital\MailLog\mail\FailureReportingTransport;
 use CoyshDigital\MailLog\MailLog;
+use CoyshDigital\MailLog\models\Settings;
 use CoyshDigital\MailLog\records\MailLogRecord;
 use Craft;
 use craft\base\Component;
 use craft\helpers\DateTimeHelper;
-use craft\helpers\Db;
 use craft\mail\Message as CraftMessage;
+use DateTime;
+use DateTimeImmutable;
+use DateTimeZone;
 use ReflectionProperty;
 use Symfony\Component\Mailer\Transport\TransportInterface;
 use Symfony\Component\Mime\Email;
@@ -61,10 +65,23 @@ class LogsService extends Component
     ];
 
     /**
-     * Number of rows removed per DELETE when pruning, to avoid long table
-     * locks and huge transactions on high-volume sites.
+     * Default number of rows removed per DELETE when pruning. Entries can
+     * weigh tens of kilobytes each, so batches are kept small to bound the
+     * size of each transaction (and the locks and undo log it holds).
      */
-    private const PRUNE_BATCH_SIZE = 1000;
+    public const DEFAULT_PRUNE_BATCH_SIZE = 500;
+
+    /**
+     * Largest number of rows removed per DELETE.
+     */
+    public const MAX_PRUNE_BATCH_SIZE = 10000;
+
+    /**
+     * Maximum number of rows removed per garbage collection run. GC runs
+     * inside whatever request or console command happens to trigger it, so
+     * a large backlog is worked down gradually rather than all at once.
+     */
+    public const GC_PRUNE_MAX_ROWS = 5000;
 
     /**
      * The message currently being handed to a transport, and the mailer
@@ -75,6 +92,15 @@ class LogsService extends Component
     private ?BaseMailer $pendingMailer = null;
 
     private static ?ReflectionProperty $transportProperty = null;
+
+    /**
+     * The plugin's settings. A seam so that the service can be exercised
+     * without a booted plugin.
+     */
+    protected function settings(): Settings
+    {
+        return MailLog::$plugin->getSettings();
+    }
 
     /**
      * Handle BaseMailer::EVENT_BEFORE_SEND.
@@ -88,7 +114,7 @@ class LogsService extends Component
         $this->pendingMessage = $message;
         $this->pendingMailer = $mailer;
 
-        if (MailLog::$plugin->getSettings()->logFailures) {
+        if ($this->settings()->logFailures) {
             $this->wrapTransport($mailer);
         }
     }
@@ -137,7 +163,7 @@ class LogsService extends Component
         ?Throwable $error = null,
         ?BaseMailer $mailer = null,
     ): bool {
-        $settings = MailLog::$plugin->getSettings();
+        $settings = $this->settings();
 
         if (!$isSuccessful && !$settings->logFailures) {
             return false;
@@ -169,8 +195,14 @@ class LogsService extends Component
             $record->attachmentNames = $this->extractAttachmentNames($email) ?: null;
 
             if ($settings->logBodies && !$this->isRedacted($record->systemKey)) {
-                $record->textBody = $this->bodyToString($email->getTextBody());
-                $record->htmlBody = $this->bodyToString($email->getHtmlBody());
+                $textBody = $this->bodyToString($email->getTextBody());
+                $htmlBody = $this->bodyToString($email->getHtmlBody());
+                if ($settings->compressBodies) {
+                    $textBody = BodyCodec::encode($textBody);
+                    $htmlBody = BodyCodec::encode($htmlBody);
+                }
+                $record->textBody = $textBody;
+                $record->htmlBody = $htmlBody;
             }
         }
 
@@ -194,7 +226,7 @@ class LogsService extends Component
         if ($systemKey === null || $systemKey === '') {
             return false;
         }
-        $settings = MailLog::$plugin->getSettings();
+        $settings = $this->settings();
         return $settings->redactSensitiveEmails
             && in_array($systemKey, $settings->sensitiveSystemKeys, true);
     }
@@ -254,45 +286,164 @@ class LogsService extends Component
         return (bool) $log->delete();
     }
 
+    /**
+     * Delete every entry. Uses TRUNCATE rather than a DELETE so that a
+     * large log is emptied instantly, without a huge transaction or binlog
+     * volume, and its disk space is returned to the operating system.
+     *
+     * @return int The number of entries that were removed
+     */
     public function deleteAll(): int
     {
-        return (int) MailLogRecord::deleteAll();
+        $count = (int) MailLogRecord::find()->count();
+        try {
+            Craft::$app->getDb()->createCommand()->truncateTable(MailLogRecord::tableName())->execute();
+            return $count;
+        } catch (Throwable $e) {
+            // TRUNCATE needs privileges (e.g. DROP on MySQL) that a restricted
+            // database user may lack. Fall back to batched deletes.
+            Craft::warning('Mail Log could not truncate its table, deleting in batches instead: ' . $e->getMessage(), 'mail-log');
+        }
+
+        $deleted = 0;
+        while (($ids = MailLogRecord::find()->select(['id'])->orderBy(['id' => SORT_ASC])->limit(self::DEFAULT_PRUNE_BATCH_SIZE)->column()) !== []) {
+            $deleted += (int) MailLogRecord::deleteAll(['id' => $ids]);
+        }
+        return $deleted;
     }
 
     /**
      * Delete entries older than the configured `retentionDays` setting.
      * Does nothing when retention is disabled (0).
+     *
+     * @param int|null $maxRows Stop after deleting this many entries (a later run continues)
      */
-    public function pruneExpired(): int
+    public function pruneExpired(?int $maxRows = null): int
     {
-        return $this->deleteOlderThan(MailLog::$plugin->getSettings()->retentionDays);
+        return $this->deleteOlderThan($this->settings()->retentionDays, maxRows: $maxRows);
     }
 
     /**
-     * Delete entries created more than the given number of days ago.
+     * Apply the retention setting from Craft's garbage collection. Bounded
+     * by GC_PRUNE_MAX_ROWS per run, and never throws: GC runs inside
+     * arbitrary requests, so a failure here must not affect them.
+     *
+     * @return int The number of entries deleted
      */
-    public function deleteOlderThan(int $days): int
+    public function pruneForGarbageCollection(): int
+    {
+        try {
+            return $this->pruneExpired(self::GC_PRUNE_MAX_ROWS);
+        } catch (Throwable $e) {
+            Craft::error('Mail Log failed to prune old entries: ' . $e->getMessage(), 'mail-log');
+            return 0;
+        }
+    }
+
+    /**
+     * The UTC timestamp before which entries count as older than `$days`
+     * days, formatted for comparison with `dateCreated` (which is stored
+     * in UTC).
+     *
+     * The subtraction is done in UTC, where a day is always 24 hours. Doing
+     * it in the system time zone would shift the cutoff by an hour whenever
+     * the clocks changed within the period, deleting entries up to an hour
+     * too early or keeping them up to an hour too long.
+     *
+     * @param DateTime|null $now The reference time. Defaults to the current time.
+     */
+    public function retentionCutoff(int $days, ?DateTime $now = null): string
+    {
+        $now ??= DateTimeHelper::now();
+        $utc = DateTimeImmutable::createFromInterface($now)->setTimezone(new DateTimeZone('UTC'));
+        return $utc->modify("-{$days} days")->format('Y-m-d H:i:s');
+    }
+
+    /**
+     * Count the entries older than the given number of days.
+     */
+    public function countOlderThan(int $days): int
     {
         if ($days <= 0) {
             return 0;
         }
+        return (int) MailLogRecord::find()
+            ->where(['<', 'dateCreated', $this->retentionCutoff($days)])
+            ->count();
+    }
 
-        // dateCreated is stored in UTC; prepareDateForDb() converts from the
-        // system time zone accordingly.
-        $cutoff = Db::prepareDateForDb(DateTimeHelper::now()->modify("-{$days} days"));
+    /**
+     * The total number of entries.
+     */
+    public function countAll(): int
+    {
+        return (int) MailLogRecord::find()->count();
+    }
+
+    /**
+     * The creation date (UTC, as stored) of the oldest entry, if any.
+     */
+    public function getOldestDate(): ?string
+    {
+        $date = MailLogRecord::find()->min('dateCreated');
+        return $date !== null ? (string) $date : null;
+    }
+
+    /**
+     * Delete entries created more than the given number of days ago.
+     *
+     * Rows are removed in small batches, each in its own transaction, walking
+     * the primary key upwards so that no batch re-scans rows already
+     * handled. This keeps transactions and locks short: each DELETE touches
+     * only the listed rows, and new entries are appended at the other end of
+     * the table, so outgoing mail is never blocked. If interrupted, nothing
+     * is lost but the batch in flight, and running it again carries on.
+     *
+     * @param int $days Entries older than this many days are deleted. 0 or less deletes nothing.
+     * @param int $batchSize Entries removed per DELETE
+     * @param int|null $maxRows Stop once this many entries have been deleted
+     * @param (callable(int $deletedInBatch, int $deletedTotal): void)|null $onBatch Called after each batch
+     * @return int The number of entries deleted
+     */
+    public function deleteOlderThan(
+        int $days,
+        int $batchSize = self::DEFAULT_PRUNE_BATCH_SIZE,
+        ?int $maxRows = null,
+        ?callable $onBatch = null,
+    ): int {
+        if ($days <= 0) {
+            return 0;
+        }
+
+        $batchSize = max(1, min($batchSize, self::MAX_PRUNE_BATCH_SIZE));
+        // Fixed up front, so rows that age past the cutoff mid-run are left for next time.
+        $cutoff = $this->retentionCutoff($days);
 
         $deleted = 0;
-        do {
+        $lastId = 0;
+        while ($maxRows === null || $deleted < $maxRows) {
+            $limit = $maxRows === null ? $batchSize : min($batchSize, $maxRows - $deleted);
             $ids = MailLogRecord::find()
                 ->select(['id'])
-                ->where(['<', 'dateCreated', $cutoff])
-                ->limit(self::PRUNE_BATCH_SIZE)
+                ->where(['and', ['<', 'dateCreated', $cutoff], ['>', 'id', $lastId]])
+                ->orderBy(['id' => SORT_ASC])
+                ->limit($limit)
                 ->column();
             if ($ids === []) {
                 break;
             }
-            $deleted += (int) MailLogRecord::deleteAll(['id' => $ids]);
-        } while (count($ids) === self::PRUNE_BATCH_SIZE);
+
+            $lastId = (int) end($ids);
+            $count = (int) MailLogRecord::deleteAll(['id' => $ids]);
+            $deleted += $count;
+            if ($onBatch !== null) {
+                $onBatch($count, $deleted);
+            }
+
+            if (count($ids) < $limit) {
+                break;
+            }
+        }
 
         return $deleted;
     }

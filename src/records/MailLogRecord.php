@@ -2,6 +2,7 @@
 
 namespace CoyshDigital\MailLog\records;
 
+use CoyshDigital\MailLog\helpers\BodyCodec;
 use craft\db\ActiveRecord;
 
 /**
@@ -39,6 +40,15 @@ class MailLogRecord extends ActiveRecord
     ];
 
     /**
+     * Columns holding email bodies, which may be stored compressed
+     * (see BodyCodec).
+     */
+    private const BODY_COLUMNS = [
+        'textBody',
+        'htmlBody',
+    ];
+
+    /**
      * @inheritdoc
      */
     public static function tableName(): string
@@ -49,7 +59,7 @@ class MailLogRecord extends ActiveRecord
     /**
      * @inheritdoc
      *
-     * Decode JSON columns on read. We can't materialise the decoded array back
+     * Decode JSON columns, and compressed bodies, on read. We can't materialise the decoded array back
      * onto the attribute (Craft's ActiveRecord::setAttribute() re-serialises
      * arrays for the DB via Db::prepareValueForDb(), so any decode is
      * immediately undone). Instead, intercept reads and decode on the fly.
@@ -68,6 +78,10 @@ class MailLogRecord extends ActiveRecord
                 return $value;
             }
             return null;
+        }
+        if (in_array($name, self::BODY_COLUMNS, true)) {
+            $value = $this->getAttribute($name);
+            return is_string($value) ? BodyCodec::decode($value) : null;
         }
         return parent::__get($name);
     }

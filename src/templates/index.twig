@@ -54,6 +54,13 @@
 {% endblock %}
 
 {% block content %}
+    {% if unboundedBodyStorage %}
+        <p class="warning with-icon">
+            {{ "Entries are kept forever and email bodies are stored, so this log will keep growing. Set a retention period in the plugin settings."|t('mail-log') }}
+            <a href="{{ cpUrl('settings/plugins/mail-log') }}">{{ "Open settings"|t('mail-log') }}</a>
+        </p>
+    {% endif %}
+
     {% if logs|length == 0 %}
         <p>
             {% if isFiltered %}
