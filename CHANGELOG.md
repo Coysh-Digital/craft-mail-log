@@ -1,5 +1,29 @@
 # Mail Log Changelog
 
+## 2.0.0 - 2026-11-17
+
+### Changed
+
+- **Retention now defaults to 30 days** (it was 0, meaning forever), so the log no longer grows without limit. Installs that have saved Mail Log's settings keep their stored value, including `0`. Installs that never saved them now get 30 days, and entries older than that are removed the next time cleanup runs. To keep everything, set `retentionDays` to `0`.
+- Stored email bodies are now compressed, typically to a quarter of their size or less. This applies to new entries only; existing entries remain readable. Turn off the new **Compress email bodies** setting (`compressBodies`) to store bodies as plain text.
+- Garbage collection now removes at most 5,000 expired entries per run, so a large backlog can't stall the request that triggers it. Run `mail-log/logs/prune` for predictable cleanup.
+- Pruning walks the table by primary key in batches of 500 (it was 1,000, re-scanning from the start each time), each in its own transaction.
+- **Delete all** and `mail-log/logs/flush` now empty the table with `TRUNCATE` rather than one huge `DELETE`, which is instant and returns the disk space. If the database user can't truncate, they fall back to batched deletes.
+
+### Added
+
+- `mail-log/logs/prune --dry-run` reports how many entries would be deleted without deleting them.
+- `mail-log/logs/prune --batch-size` (default 500).
+- `prune` now shows the retention period and its source, the cutoff in UTC and local time, the number of entries and how many are eligible, progress per batch, and elapsed time. It reports a database failure with how many entries were already deleted, and is safe to re-run.
+- An explicit `--days` below 7 asks for confirmation, and a negative `--days` is rejected.
+- A warning in the Control Panel (on the log list and in the settings) when entries are kept forever while bodies are stored.
+- Tests covering retention, cutoff calculation, pruning in batches, garbage collection, the console command, logging, redaction and body compression, which run against SQLite or, optionally, MySQL.
+
+### Fixed
+
+- The retention cutoff was computed in the system time zone, so across a daylight saving change it could be an hour out, deleting entries up to an hour too early or keeping them up to an hour too long. It is now exactly the requested number of 24-hour days.
+- PHPStan configuration referred to a stub file that current Craft releases no longer ship; it now uses `craftcms/phpstan`.
+
 ## 1.1.0 - 2026-10-25
 
 ### Added

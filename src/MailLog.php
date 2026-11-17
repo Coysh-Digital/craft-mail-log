@@ -138,8 +138,13 @@ class MailLog extends Plugin
     }
 
     /**
-     * Apply the retention setting whenever Craft runs garbage collection,
-     * so old entries are removed even without a cron job.
+     * Apply the retention setting whenever Craft runs garbage collection.
+     *
+     * Craft runs GC on a tiny fraction of requests (1 in 100,000 by default)
+     * and does so inside that request, so this is a safety net rather than
+     * a schedule: each run removes at most GC_PRUNE_MAX_ROWS entries so that
+     * it can't stall a page load. Run `mail-log/logs/prune` from cron for
+     * predictable retention.
      */
     protected function registerGarbageCollection(): void
     {
@@ -147,11 +152,7 @@ class MailLog extends Plugin
             Gc::class,
             Gc::EVENT_RUN,
             function (): void {
-                try {
-                    $this->logs->pruneExpired();
-                } catch (\Throwable $e) {
-                    Craft::error('Mail Log failed to prune old entries: ' . $e->getMessage(), 'mail-log');
-                }
+                $this->logs->pruneForGarbageCollection();
             }
         );
     }

@@ -13,6 +13,14 @@ class Settings extends Model
     public bool $logBodies = true;
 
     /**
+     * Whether to deflate-compress stored bodies. HTML emails typically
+     * shrink to a quarter of their size or less. Compressed bodies are
+     * decoded transparently on read, and entries stored without compression
+     * remain readable, so this can be toggled at any time.
+     */
+    public bool $compressBodies = true;
+
+    /**
      * Whether to create a log entry when a send fails.
      */
     public bool $logFailures = true;
@@ -42,9 +50,12 @@ class Settings extends Model
     /**
      * Number of days to keep log entries. Older entries are deleted during
      * Craft's garbage collection and by the `mail-log/logs/prune` console
-     * command. Set to 0 to keep entries forever.
+     * command. Set to 0 to keep entries forever (not recommended while
+     * $logBodies is on).
+     *
+     * Installs that have explicitly saved a value (including 0) keep it.
      */
-    public int $retentionDays = 0;
+    public int $retentionDays = 30;
 
     /**
      * Override for the CP nav label. Blank uses the default.
@@ -52,12 +63,22 @@ class Settings extends Model
     public string $cpNavLabel = '';
 
     /**
+     * Whether entries are kept forever while full email bodies are stored,
+     * which makes the log grow without bound (typically ~50 KB per email
+     * uncompressed).
+     */
+    public function hasUnboundedBodyStorage(): bool
+    {
+        return $this->retentionDays <= 0 && $this->logBodies;
+    }
+
+    /**
      * @inheritdoc
      */
     public function defineRules(): array
     {
         return [
-            [['logBodies', 'logFailures', 'redactSensitiveEmails'], 'boolean'],
+            [['logBodies', 'compressBodies', 'logFailures', 'redactSensitiveEmails'], 'boolean'],
             ['retentionDays', 'integer', 'min' => 0],
             ['cpNavLabel', 'trim'],
             ['cpNavLabel', 'string', 'max' => 255],
